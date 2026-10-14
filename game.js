@@ -1,0 +1,273 @@
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id)
+  const show = (id) => document.querySelectorAll(".panel").forEach((p) => (p.style.display = p.id === id ? "flex" : "none"))
+  const ls = { get: (k) => { try { return localStorage.getItem(k) } catch { return null } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
+  const cv = $("c"), ctx = cv.getContext("2d"), W = 360
+  let s = 1, H = 640, B = 614
+  const fit = () => { cv.width = innerWidth; cv.height = innerHeight; s = innerWidth / W; H = innerHeight / s; B = H - 26 }
+  addEventListener("resize", fit); fit()
+
+  let score = 0, lives = 3, combo = 0, shake = 0, shield = 0, magnet = 0, slow = 0, best = 0, sc = 0
+  let items = [], fx = [], bx = W / 2, spawn = 0, last = 0, shout = null, bus = { x: W + 60 }
+  let state = "menu", paused = false, canContinue = false
+  let dbl = false, dblNext = false, starter = false, bonusLives = 0, shieldNext = false
+  let playT = 0
+  let snd = ls.get("snd") !== "0", gele = ls.get("gele") || "#ff3d8b"
+  const FOODS = ["🍛", "🍢", "🍌", "🍹", "🥧", "🍪", "🍩"]   // jollof, suya, plantain, zobo, meat pie, chin chin, puff-puff
+  const EMOJI = { bad: "🪳", mag: "🧲", shd: "🛡️", slo: "⏱️", nep: "⚡" }
+  const WORDS = ["Oya!", "Correct!", "Omo!", "Sharp sharp!"]
+
+  // ---- sound (starts only after the first tap) ----
+  let ac
+  addEventListener("pointerdown", () => { if (!ac) try { ac = new (window.AudioContext || window.webkitAudioContext)() } catch {} }, { once: true })
+  const beep = (f, d = 0.08, type = "sine") => {
+    if (!ac || paused || !snd) return
+    const o = ac.createOscillator(), g = ac.createGain()
+    o.type = type; o.frequency.value = f; g.gain.value = 0.07
+    o.connect(g); g.connect(ac.destination); o.start()
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + d); o.stop(ac.currentTime + d)
+  }
+
+  const msg = (t) => ($("msg").textContent = t || "")
+  const showMenu = (title, sub) => {
+    state = "menu"; $("title").textContent = title; $("sub").textContent = sub
+    $("cont").style.display = canContinue ? "" : "none"
+    $("starter").style.display = starter ? "none" : ""
+    $("dbl").style.display = dblNext ? "none" : ""
+    $("play").textContent = canContinue ? "Play again" : "Play"
+    show("home"); $("mega").style.display = starter || dblNext ? "none" : ""
+    $("menu").classList.remove("hide")
+  }
+  const begin = () => { state = "play"; $("menu").classList.add("hide") }
+  const start = () => {
+    score = 0; combo = 0; items = []; fx = []; shield = shieldNext ? 1 : 0; shieldNext = false; magnet = 0; slow = 0
+    lives = 3 + bonusLives + (starter ? 2 : 0); bonusLives = 0
+    if (starter) magnet = 15
+    starter = false; dbl = dblNext; dblNext = false; playT = 0
+    canContinue = false; msg(); begin()
+  }
+
+  // ---- your server checks every purchase before giving anything ----
+  const claim = async (p) => {
+    try {
+      const { session } = await Vatar.session()
+      const r = await fetch("/claim", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session, purchaseId: p.purchaseId }) })
+      if (!r.ok) return msg("Could not confirm that purchase. Try again.")
+      const { productId } = await r.json()
+      if (productId === "double_round") { dblNext = true; $("dbl").style.display = "none"; msg("✨ 2× points on your next round!") }
+      if (productId === "starter_pack") { starter = true; $("starter").style.display = "none"; msg("🚀 Starter Pack ready for your next round!") }
+      if (productId === "mega_pack") { starter = true; dblNext = true; shieldNext = true; bonusLives += 3; for (const id of ["starter", "dbl", "mega"]) $(id).style.display = "none"; msg("💎 Mega Pack ready for your next round!") }
+      if (productId === "extra_life") {
+        if (state === "menu" && canContinue) { lives = 1; shield = 3; canContinue = false; begin() }
+        else { bonusLives++; msg("❤️ Bonus life saved for your next round!") }
+      }
+    } catch (e) { msg("Something went wrong. Try again.") }
+  }
+  const buy = (id) => Vatar.purchase(id).then(claim).catch((e) => { if (e.code !== "cancelled") msg("Payment: " + e.code) })
+
+  $("play").onclick = start
+  $("cont").onclick = () => buy("extra_life")
+  $("starter").onclick = () => buy("starter_pack")
+  $("dbl").onclick = () => buy("double_round")
+  $("mega").onclick = () => buy("mega_pack")
+  $("storeBtn").onclick = () => { msg(); show("store") }
+  $("setBtn").onclick = () => show("settings")
+  $("aboutBtn").onclick = () => show("about")
+  document.querySelectorAll(".back").forEach((b) => (b.onclick = () => show("home")))
+  const sndLabel = () => ($("sndBtn").textContent = snd ? "🔊 Sound: ON" : "🔇 Sound: OFF")
+  $("sndBtn").onclick = () => { snd = !snd; ls.set("snd", snd ? "1" : "0"); sndLabel() }
+  sndLabel()
+  for (const c of ["#ff3d8b", "#ffb703", "#4cc9f0", "#9b5de5", "#ffffff"]) {
+    const b = document.createElement("button")
+    b.style.cssText = `min-width:0;width:44px;height:44px;padding:0;background:${c};border:3px solid #fff;box-shadow:none`
+    b.onclick = () => { gele = c; ls.set("gele", c) }
+    $("geles").appendChild(b)
+  }
+  $("lbBtn").onclick = () => Vatar.leaderboard().then(({ top, me }) => {
+    $("lb").textContent = top.slice(0, 5).map((t) => `#${t.rank} ${t.name} — ${t.score}`).join("\n") + (me ? `\nYou: ${me.label} — ${me.score}` : "")
+  }).catch((e) => msg(e.code))
+
+  Vatar.init().then(({ player }) => {
+    if (player.avatar) { $("av").src = player.avatar; $("av").style.display = "block" }
+    $("sub").textContent = `Hi ${player.name} 👋🏾 Chop the food, dodge the cockroach!`
+    Vatar.purchases().then((list) => list.forEach(claim))   // paid earlier, not delivered yet
+  }).catch((e) => { $("sub").textContent = e.code === "not_framed" ? "Open this game from the Games app (or the sandbox)." : "Error: " + e.code })
+  Vatar.onPurchase(claim)
+  Vatar.onPause(() => { paused = true; ac && ac.suspend() })
+  Vatar.onResume(() => { paused = false; last = performance.now(); ac && ac.resume() })
+
+  const move = (e) => { bx = Math.max(30, Math.min(W - 30, e.clientX / s)) }
+  addEventListener("pointermove", move); addEventListener("pointerdown", move)
+
+  const pop = (x, y, txt) => fx.push({ x, y, txt, t: 0.8 })
+  const COL = ["#008751", "#ffffff", "#ffd166", "#ff5d8f"]
+  const burst = (x, y) => { for (let k = 0; k < 10; k++) fx.push({ x, y, vx: (Math.random() - .5) * 240, vy: -Math.random() * 200, t: 0.6, dot: COL[k % 4] }) }
+
+  function over() {
+    state = "over"; canContinue = true
+    const sc2 = score; best = Math.max(best, sc2)
+    showMenu("E don do! 😅", `Score ${sc2} · Best ${best}`)
+    if (sc2 > 0 && sc2 <= 45 * playT + 60) Vatar.submitScore(sc2).then(() => Vatar.leaderboard()).then(({ me }) => {
+      if (me && state === "menu") $("sub").textContent = `Score ${sc2} · Best ${best} · You're ${me.label} 🏆`
+    }).catch(() => {})
+  }
+
+  // ---- scenery, drawn in code ----
+  const rnd = (() => { let a = 7; return () => (a = a * 16807 % 2147483647) / 2147483647 })()
+  const SP = W * 2
+  const mk = (h0, h1, w0, w1) => { let x = 0; const o = []; while (x < SP) { const w = w0 + rnd() * (w1 - w0); o.push({ x, w, h: h0 + rnd() * (h1 - h0), k: rnd() }); x += w + rnd() * 6 } return o }
+  const far = mk(60, 170, 22, 40), near = mk(40, 100, 28, 50)
+  const stars = Array.from({ length: 40 }, () => [rnd() * W, rnd() * 300, rnd() * 1.6 + .4])
+  const SKY = [["#4cc9f0", "#d8f3ff"], ["#ff7b54", "#ffd56b"], ["#3a1c71", "#d76d77"], ["#0b1230", "#243b6b"]]
+  const hx = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16))
+  const mix = (a, b, f) => { const x = hx(a), y = hx(b); return `rgb(${x.map((v, i) => v + (y[i] - v) * f | 0)})` }
+  const wrap = (x, off) => ((x - off) % SP + SP) % SP
+
+  function city(L, off, col, night) {
+    ctx.fillStyle = col
+    for (const b of L) for (const x of [wrap(b.x, off), wrap(b.x, off) - SP]) {
+      if (x > W || x + b.w < 0) continue
+      ctx.fillRect(x, B - b.h, b.w, b.h)
+      if (night > 0.05) {
+        ctx.globalAlpha = night; ctx.fillStyle = "#ffd98a"
+        for (let wy = B - b.h + 8; wy < B - 8; wy += 12) for (let wx = x + 5; wx < x + b.w - 6; wx += 9) if ((wx * 7 + wy * 3 + b.k * 100 | 0) % 5 > 1) ctx.fillRect(wx, wy, 3, 5)
+        ctx.globalAlpha = 1; ctx.fillStyle = col
+      }
+    }
+  }
+  function bridge(off, col) {   // Lekki-Ikoyi link bridge
+    ctx.strokeStyle = col
+    for (const x of [wrap(150, off), wrap(150, off) - SP]) {
+      if (x > W + 130 || x < -130) continue
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, B); ctx.lineTo(x + 12, B - 150); ctx.lineTo(x + 24, B)
+      ctx.moveTo(x - 100, B - 26); ctx.lineTo(x + 130, B - 26); ctx.stroke()
+      ctx.lineWidth = 1; ctx.beginPath()
+      for (let k = -90; k <= 120; k += 15) { ctx.moveTo(x + 12, B - 148); ctx.lineTo(x + k, B - 26) }
+      ctx.stroke()
+    }
+  }
+  function palm(x) {
+    ctx.strokeStyle = "#0b2417"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x, B); ctx.quadraticCurveTo(x + 8, B - 50, x + 2, B - 95); ctx.stroke()
+    ctx.lineWidth = 3
+    for (let a = 0; a < 7; a++) { const an = -0.4 + a * 0.55 + Math.PI * 0.95 - Math.PI; ctx.beginPath(); ctx.moveTo(x + 2, B - 95); ctx.quadraticCurveTo(x + 2 + Math.cos(an - 1.57) * 22, B - 95 + Math.sin(an - 1.57) * 22 - 12, x + 2 + Math.cos(an - 1.57) * 40, B - 95 + Math.sin(an - 1.57) * 40 + 14); ctx.stroke() }
+  }
+  function danfo(x) {
+    ctx.fillStyle = "#ffcc00"; ctx.beginPath(); ctx.roundRect(x - 32, B - 15, 64, 20, 4); ctx.fill()
+    ctx.fillStyle = "#111"; ctx.fillRect(x - 32, B - 5, 64, 4)
+    ctx.fillStyle = "#334a66"; for (let k = 0; k < 4; k++) ctx.fillRect(x - 26 + k * 14, B - 12, 10, 6)
+    ctx.fillStyle = "#fff6a0"; ctx.fillRect(x - 33, B - 3, 3, 3)
+    ctx.fillStyle = "#000"; for (const w of [-19, 19]) { ctx.beginPath(); ctx.arc(x + w, B + 5, 5, 0, 7); ctx.fill() }
+  }
+  function girl(x, y, t) {   // market woman in gele, tray on head
+    const bob = Math.sin(t / 90) * 1
+    ctx.strokeStyle = "#6b3f2a"; ctx.lineWidth = 4; ctx.lineCap = "round"
+    ctx.beginPath(); ctx.moveTo(x - 9, y - 32); ctx.lineTo(x - 27, y - 62 + bob); ctx.moveTo(x + 9, y - 32); ctx.lineTo(x + 27, y - 62 + bob); ctx.stroke()
+    ctx.fillStyle = "#008751"; ctx.beginPath(); ctx.moveTo(x - 15, y); ctx.lineTo(x + 15, y); ctx.lineTo(x + 9, y - 34); ctx.lineTo(x - 9, y - 34); ctx.fill()
+    ctx.fillStyle = "#ffd166"; ctx.fillRect(x - 13, y - 18, 26, 4)
+    ctx.fillStyle = "#6b3f2a"; ctx.beginPath(); ctx.arc(x, y - 43, 9, 0, 7); ctx.fill()
+    ctx.fillStyle = "#fff"; ctx.fillRect(x - 4, y - 45, 2, 2); ctx.fillRect(x + 2, y - 45, 2, 2)
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y - 41, 3.5, 0.2, 2.9); ctx.stroke()
+    ctx.fillStyle = gele; ctx.beginPath(); ctx.ellipse(x, y - 49, 15, 10, 0, Math.PI, 0); ctx.fill()
+    ctx.strokeStyle = "#ffb3d1"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, y - 49, 11, 6, 0, Math.PI, 0); ctx.stroke()
+    ctx.fillStyle = gele; ctx.beginPath(); ctx.moveTo(x + 12, y - 52); ctx.lineTo(x + 24, y - 58); ctx.lineTo(x + 20, y - 46); ctx.fill()
+    ctx.fillStyle = "#c68642"; ctx.beginPath(); ctx.ellipse(x, y - 62 + bob, 38, 7, 0, 0, Math.PI); ctx.fill()
+    ctx.strokeStyle = "#8a5a2b"; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, y - 62 + bob, 38, 7, 0, 0, 7); ctx.stroke()
+  }
+  function note(x, y) {
+    ctx.fillStyle = "#2e9e4f"; ctx.strokeStyle = "#d8ffd8"; ctx.lineWidth = 2
+    ctx.beginPath(); ctx.roundRect(x - 20, y - 12, 40, 24, 3); ctx.fill(); ctx.stroke()
+    ctx.fillStyle = "#fff"; ctx.font = "700 18px system-ui"; ctx.textAlign = "center"; ctx.fillText("₦", x, y + 6)
+  }
+
+  function frame(t) {
+    const dt = Math.min(0.05, (t - last) / 1000); last = t
+    if (!paused) { sc += 40 * dt; bus.x -= 70 * dt; if (bus.x < -60) bus.x = W + 200 + Math.random() * 300 }
+    ctx.setTransform(s, 0, 0, s, 0, 0)
+    if (shake > 0) { ctx.translate((Math.random() - .5) * 10, (Math.random() - .5) * 10); shake -= dt }
+    const tt = (score / 40) % 4, si = tt | 0, f = tt - si, nx = SKY[(si + 1) % 4]
+    const night = si === 2 ? f * 0.8 : si === 3 ? 1 - f : 0
+    const g = ctx.createLinearGradient(0, 0, 0, B)
+    g.addColorStop(0, mix(SKY[si][0], nx[0], f)); g.addColorStop(1, mix(SKY[si][1], nx[1], f))
+    ctx.fillStyle = g; ctx.fillRect(-10, -10, W + 20, H + 20)
+    if (night > 0.05) { ctx.fillStyle = "#fff"; for (const st of stars) { ctx.globalAlpha = night * (0.5 + 0.5 * Math.sin(t / 400 + st[0])); ctx.fillRect(st[0], st[1], st[2], st[2]) } ctx.globalAlpha = 1 }
+    ctx.fillStyle = night < 0.5 ? "#fff3a0" : "#f4f1ff"; ctx.beginPath(); ctx.arc(W - 60, 90 + 60 * (si === 1 ? f : 0), night < 0.5 ? 28 : 20, 0, 7); ctx.fill()
+    ctx.globalAlpha = 0.55; city(far, sc * 0.3, "#27495a", night); bridge(sc * 0.3, "#27495a"); ctx.globalAlpha = 1
+    city(near, sc * 0.7, "#14303a", night)
+    for (const px of [60, 330, 560]) { const x = wrap(px, sc * 0.7); palm(x); palm(x - SP) }
+    ctx.fillStyle = "#262626"; ctx.fillRect(0, B, W, H - B + 10)
+    ctx.fillStyle = "#ddd"; for (let x = -(sc * 2 % 44); x < W; x += 44) ctx.fillRect(x, B + 17, 22, 2)
+    danfo(bus.x)
+
+    if (state === "play" && !paused) {
+      playT += dt; magnet = Math.max(0, magnet - dt); slow = Math.max(0, slow - dt)
+      const level = 1 + (score / 30 | 0)
+      spawn -= dt
+      if (spawn <= 0) {
+        const r = Math.random()
+        const type = r < .2 ? "bad" : r < .25 ? "gold" : r < .28 ? "mag" : r < .31 ? "shd" : r < .34 ? "slo" : r < .36 ? "nep" : "food"
+        items.push({ x: 22 + Math.random() * (W - 44), y: -20, t: type, e: FOODS[Math.random() * FOODS.length | 0], p: Math.random() * 6 })
+        spawn = Math.max(0.3, 0.9 - level * 0.04)
+      }
+      const speed = (150 + Math.min(score * 2.2, 280)) * (slow > 0 ? 0.55 : 1)
+      const ty = B - 62 - 24
+      items = items.filter((i) => {
+        i.y += speed * dt
+        if (magnet > 0 && i.t !== "bad" && i.y > 60) i.x += (bx - i.x) * 3 * dt
+        if (i.y > ty - 24 && i.y < ty + 12 && Math.abs(i.x - bx) < 46) {
+          if (i.t === "bad") {
+            if (shield > 0) { shield = 0; pop(i.x, i.y, "🛡️ blocked!"); beep(300) }
+            else { lives--; combo = 0; shake = 0.3; pop(i.x, i.y, "Wahala! -1 ❤️"); beep(120, 0.2, "sawtooth") }
+          } else if (i.t === "mag") { magnet = 8; pop(i.x, i.y, "🧲 magnet!"); beep(700) }
+          else if (i.t === "shd") { shield = 1; pop(i.x, i.y, "🛡️ shield!"); beep(700) }
+          else if (i.t === "slo") { slow = 5; pop(i.x, i.y, "⏱️ slow-mo!"); beep(700) }
+          else if (i.t === "nep") {
+            shake = 0.25; shout = { txt: "⚡ UP NEPA! ⚡", t: 1.2 }; beep(900, 0.25, "square")
+            for (const o of items) if (o.t === "bad") o.t = "gold"
+          } else {
+            combo++
+            const m = Math.min(5, 1 + (combo / 5 | 0))
+            if (combo % 5 === 0 && m > 1) { shout = { txt: WORDS[m - 2], t: 1 }; beep(900, 0.15) }
+            const pts = (i.t === "gold" ? 5 : 1) * m * (dbl ? 2 : 1)
+            score += pts; pop(i.x, i.y, "+" + pts); beep(450 + m * 90)
+          }
+          burst(i.x, i.y); return false
+        }
+        if (i.y > B - 6) { if (i.t === "food" || i.t === "gold") combo = 0; return false }
+        return true
+      })
+      if (lives <= 0) over()
+    }
+    fx = fx.filter((q) => { if (!paused) { q.t -= dt; if (q.dot) { q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 500 * dt } else q.y -= 40 * dt } return q.t > 0 })
+    if (shout && !paused) { shout.t -= dt; if (shout.t <= 0) shout = null }
+
+    ctx.textAlign = "center"
+    for (const i of items) {
+      ctx.save(); ctx.translate(i.x, i.y); ctx.rotate(Math.sin(i.y / 35 + i.p) * 0.35)
+      if (i.t === "gold") { ctx.shadowColor = "#ffe066"; ctx.shadowBlur = 14; note(0, 0) }
+      else { ctx.font = "32px serif"; ctx.fillText(i.t === "food" ? i.e : EMOJI[i.t], 0, 10) }
+      ctx.restore()
+    }
+    girl(bx, B - 2, t)
+    if (shield > 0) { ctx.strokeStyle = "#4cc9f0"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(bx, B - 40, 46, 0, 7); ctx.stroke() }
+    if (dbl) { ctx.font = "22px serif"; ctx.fillText("✨", bx + 30, B - 80) }
+    for (const q of fx) {
+      if (q.dot) { ctx.fillStyle = q.dot; ctx.fillRect(q.x, q.y, 5, 5) }
+      else { ctx.font = "700 16px system-ui"; ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3; ctx.strokeText(q.txt, q.x, q.y); ctx.fillText(q.txt, q.x, q.y) }
+    }
+    if (shout) { ctx.globalAlpha = Math.min(1, shout.t * 2); ctx.font = "800 38px system-ui"; ctx.fillStyle = "#ffd166"; ctx.strokeStyle = "#000"; ctx.lineWidth = 5; ctx.strokeText(shout.txt, W / 2, H * 0.32); ctx.fillText(shout.txt, W / 2, H * 0.32); ctx.globalAlpha = 1 }
+    // top bar
+    ctx.fillStyle = "#008751"; ctx.fillRect(0, 0, W / 3, 4); ctx.fillStyle = "#fff"; ctx.fillRect(W / 3, 0, W / 3, 4); ctx.fillStyle = "#008751"; ctx.fillRect(2 * W / 3, 0, W / 3 + 1, 4)
+    const m = Math.min(5, 1 + (combo / 5 | 0))
+    ctx.font = "700 18px system-ui"; ctx.fillStyle = "#fff"; ctx.strokeStyle = "#000"; ctx.lineWidth = 3
+    ctx.textAlign = "left"; ctx.strokeText(`Score ${score}`, 12, 28); ctx.fillText(`Score ${score}`, 12, 28)
+    ctx.textAlign = "center"; if (m > 1 && state === "play") { ctx.fillStyle = "#ffd166"; ctx.strokeText(`×${m} 🔥`, W / 2, 28); ctx.fillText(`×${m} 🔥`, W / 2, 28) }
+    ctx.fillStyle = "#fff"; ctx.textAlign = "right"; ctx.fillText("❤️".repeat(Math.max(0, lives)), W - 12, 28)
+    ctx.font = "600 13px system-ui"; ctx.textAlign = "left"; ctx.fillStyle = "#e8fff0"
+    ctx.fillText(`Lv ${1 + (score / 30 | 0)}${dbl ? "  ✨2×" : ""}${magnet > 0 ? `  🧲${magnet | 0}s` : ""}${slow > 0 ? `  ⏱️${slow | 0}s` : ""}`, 12, 48)
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+  showMenu("🍛 Chop Rush Lagos", "Loading…")
+})()

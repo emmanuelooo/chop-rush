@@ -1,0 +1,62 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<script src="https://lagoslife.app/sdk/vatar-games-v1.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a1a12; color: #fff; font: 600 18px system-ui; overflow: hidden; touch-action: none }
+  canvas { display: block; width: 100vw; height: 100dvh }
+  #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; text-align: center; background: #031a0cdd; padding: 16px; overflow: auto }
+  #menu.hide { display: none }
+  #bar { height: 6px; width: 260px; border-radius: 3px; background: linear-gradient(90deg,#008751 33%,#fff 33% 66%,#008751 66%) }
+  h1 { margin: 0; color: #ffd166; text-shadow: 0 2px 0 #000 }
+  button { font: inherit; padding: 13px 22px; border: 0; border-radius: 99px; background: linear-gradient(#ffd166,#f9a825); color: #111; min-width: 270px; box-shadow: 0 3px 0 #8a5a00 }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 #8a5a00 }
+  button.alt { background: #0f3d22; color: #fff; font-size: 16px; box-shadow: 0 3px 0 #052412; border: 1px solid #1d7a45 }
+  button.hot { background: linear-gradient(#ff5d6c,#d62839); color: #fff; box-shadow: 0 3px 0 #7a0f1b }
+  small { display: block; font-weight: 400; font-size: 12px; opacity: .85 }
+  #msg, #lb { font-size: 14px; opacity: .95; min-height: 18px; white-space: pre-line }
+  #tips { font-size: 12px; font-weight: 400; opacity: .75; max-width: 310px; line-height: 1.5 }
+  .panel { display: flex; flex-direction: column; gap: 9px; align-items: center }
+  .panel > b { color: #ffd166; font-size: 20px }
+  #av { width: 56px; height: 56px; border-radius: 50%; border: 3px solid #ffd166; display: none }
+  #geles { display: flex; gap: 10px }
+  #about { max-width: 310px; font-size: 13px; font-weight: 400; line-height: 1.55; text-align: left }
+</style>
+<canvas id="c"></canvas>
+<div id="menu">
+  <div id="bar"></div>
+  <img id="av" alt="">
+  <h1 id="title">🍛 Chop Rush Lagos</h1>
+  <div id="sub">Loading…</div>
+  <div id="home" class="panel">
+    <button id="play">Play</button>
+    <button id="cont" class="hot" style="display:none">❤️ Ah ahn! Keep going · ₦100<small>Continue with 1 life</small></button>
+    <button id="storeBtn" class="alt">🛒 Store</button>
+    <button id="lbBtn" class="alt">🏆 Leaderboard</button>
+    <button id="setBtn" class="alt">⚙️ Settings</button>
+    <button id="aboutBtn" class="alt">ℹ️ About &amp; how to play</button>
+    <div id="lb"></div>
+  </div>
+  <div id="store" class="panel" style="display:none">
+    <b>🛒 Store</b>
+    <button id="mega" class="hot">💎 Mega Pack · ₦500<small>Next round: 8 lives, shield, 15s magnet, 2× points</small></button>
+    <button id="starter" class="alt">🚀 Starter Pack · ₦200<small>Next round: 5 lives + 15s magnet</small></button>
+    <button id="dbl" class="alt">✨ 2× Points · ₦150<small>Double score for your next round</small></button>
+    <small>Everything applies to your next round. Buying is always optional.</small>
+    <button class="alt back">← Back</button>
+  </div>
+  <div id="settings" class="panel" style="display:none">
+    <b>⚙️ Settings</b>
+    <button id="sndBtn" class="alt"></button>
+    <div>Choose your gele 💃🏾</div>
+    <div id="geles"></div>
+    <small>Settings are saved on this phone when it allows.</small>
+    <button class="alt back">← Back</button>
+  </div>
+  <div id="about" class="panel" style="display:none">
+    <b>ℹ️ About</b>
+    <div><b style="font-size:14px">How to play</b><br>Drag to move the market woman and catch the chop 🍛🍢🍌🍹🥧🍪🍩 (+1) and naira 💵 (+5). Dodge the cockroach 🪳, it costs a life.<br>⚡ Up NEPA turns cockroaches into naira · 🧲 magnet · 🛡️ shield · ⏱️ slow-mo.<br>Catch 5 in a row to raise your combo up to ×5. Missing food resets it.<br><br><b style="font-size:14px">Privacy</b><br>Your name and picture come from Lagos Life. This game never asks for or stores personal info. Purchases are always optional.<br><br>Made with ❤️ in Lagos. Chop Rush Lagos v1.2</div>
+    <button class="alt back">← Back</button>
+  </div>
+  <div id="msg"></div>
+</div>
+<script src="/game.js"></script>
